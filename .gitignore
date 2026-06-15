@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# Environment Variables
+.env
+.env.local
+*.env
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Data & Uploads (don't commit candidate data or API keys)
+data/config.json
+data/candidates.json
+data/responses.json
+uploads/resumes/
+uploads/videos/
+
+# Keep directory structure
+!uploads/resumes/.gitkeep
+!uploads/videos/.gitkeep
+!data/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
