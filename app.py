@@ -264,7 +264,7 @@ with st.sidebar:
     else:
         st.markdown('<span class="badge-warning">⚠️ API Key Needed</span>', unsafe_allow_html=True)
     st.markdown("")
-    st.caption("Powered by Google Gemini 2.0 Flash")
+    st.caption("Powered by Google Gemini 2.5 Flash")
 
 
 # ── Hero Section ──────────────────────────────────────────────────────────────
@@ -327,10 +327,11 @@ if st.session_state.get("gemini_ready"):
     model_col, change_col = st.columns([3, 1])
     with model_col:
         model_labels = {
-            "gemini-1.5-flash":     "gemini-1.5-flash  —  Recommended (separate quota)",
-            "gemini-2.0-flash-lite":"gemini-2.0-flash-lite  —  Faster, lower quota usage",
-            "gemini-1.5-flash-8b":  "gemini-1.5-flash-8b  —  Lightweight fallback",
-            "gemini-2.0-flash":     "gemini-2.0-flash  —  Most capable (may hit quota)",
+            "gemini-2.5-flash":    "gemini-2.5-flash  —  ⭐ Newest & Recommended",
+            "gemini-2.0-flash-lite":"gemini-2.0-flash-lite  —  Fast, separate quota",
+            "gemini-1.5-flash":    "gemini-1.5-flash  —  Stable fallback",
+            "gemini-1.5-flash-8b": "gemini-1.5-flash-8b  —  Lightweight fallback",
+            "gemini-2.0-flash":    "gemini-2.0-flash  —  Capable (may hit quota)",
         }
         chosen = st.selectbox(
             "🧠 Preferred AI Model (auto-fallback if quota exceeded)",
@@ -401,7 +402,7 @@ else:
             st.session_state["raw_api_key"] = api_key_input
             st.session_state["gemini_model"] = initialize_gemini(api_key_input)
             st.session_state["gemini_ready"] = True
-            st.session_state["preferred_model"] = "gemini-1.5-flash"
+            st.session_state["preferred_model"] = "gemini-2.5-flash"
             st.warning(
                 "⚠️ **API key saved successfully!** Your key is valid, but all Gemini models "
                 "have hit their free-tier rate limit right now.\n\n"
