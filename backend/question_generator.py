@@ -9,7 +9,7 @@ import re
 from backend.gemini_client import generate_content
 
 
-def generate_interview_questions(model, resume_data: dict, resume_text: str, preferred_model: str = "gemini-1.5-flash") -> dict:
+def generate_interview_questions(model, resume_data: dict, resume_text: str, preferred_model: str = "gemini-2.5-flash") -> dict:
     """
     Generate a personalized set of interview questions for a candidate.
 
