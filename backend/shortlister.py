@@ -8,7 +8,7 @@ import re
 from backend.gemini_client import generate_content
 
 
-def shortlist_resume(model, resume_text: str, criteria: dict, preferred_model: str = "gemini-1.5-flash") -> dict:
+def shortlist_resume(model, resume_text: str, criteria: dict, preferred_model: str = "gemini-2.5-flash") -> dict:
     """
     Use Gemini to analyze a single resume against job criteria.
 
