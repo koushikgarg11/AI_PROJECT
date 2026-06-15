@@ -9,6 +9,12 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
+try:
+    import streamlit as st
+    _HAS_STREAMLIT = True
+except ImportError:
+    _HAS_STREAMLIT = False
+
 # ── Directory Layout ──────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -35,7 +41,22 @@ def save_api_key(api_key: str):
 
 
 def load_api_key() -> str:
-    """Load the saved Gemini API key, or return empty string if not saved."""
+    """
+    Load the saved Gemini API key.
+    Priority:
+      1. st.secrets["GEMINI_API_KEY"]  — Streamlit Cloud deployment
+      2. Local data/config.json         — local development
+    Returns empty string if not found.
+    """
+    # 1) Streamlit Secrets (Streamlit Cloud)
+    if _HAS_STREAMLIT:
+        try:
+            key = st.secrets.get("GEMINI_API_KEY", "")
+            if key:
+                return key
+        except Exception:
+            pass
+    # 2) Local file fallback
     return _load_config().get("gemini_api_key", "")
 
 
