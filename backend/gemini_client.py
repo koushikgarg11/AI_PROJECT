@@ -7,51 +7,71 @@ Validation strategy:
 - Only tries generate_content to find an available model after key is confirmed valid
 """
 
+import time
 from google import genai
 
 # Models tried in order when a quota error is hit.
 # Each has its own independent free-tier quota.
+# gemini-2.5-flash is the newest GA model with a separate quota pool — try it first.
 FALLBACK_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash-lite",
     "gemini-1.5-flash",
     "gemini-1.5-flash-8b",
-    "gemini-2.0-flash-lite",
     "gemini-2.0-flash",
 ]
 
+# How many seconds to wait before retrying the SAME model once on a transient 429
+_RETRY_DELAY_SECONDS = 3
 
 def initialize_gemini(api_key: str) -> genai.Client:
     """
-    Create a Gemini client.  Forces api_version='v1' so that stable
-    models (gemini-1.5-flash, etc.) are available alongside v2 models.
+    Create a Gemini client.  Forces api_version='v1beta' so that both
+    stable and preview models (gemini-2.5-flash, etc.) are available.
     """
     return genai.Client(
         api_key=api_key,
-        http_options={"api_version": "v1"},
+        http_options={"api_version": "v1beta"},
     )
 
 
-def generate_content(client: genai.Client, prompt: str, preferred_model: str = "gemini-1.5-flash") -> str:
+def generate_content(client: genai.Client, prompt: str, preferred_model: str = "gemini-2.5-flash") -> str:
     """
     Send a prompt and return the text response.
     Auto-falls back through FALLBACK_MODELS if quota is exhausted.
+    Each model is tried once with a brief retry on transient 429 errors
+    before moving to the next model.
     """
     order = [preferred_model] + [m for m in FALLBACK_MODELS if m != preferred_model]
     last_error = None
 
     for model in order:
-        try:
-            response = client.models.generate_content(model=model, contents=prompt)
-            return response.text
-        except Exception as e:
-            err_str = str(e)
-            if any(kw in err_str for kw in ["429", "RESOURCE_EXHAUSTED", "quota", "NOT_FOUND", "404"]):
-                last_error = f"{model}: {'quota exceeded' if '429' in err_str else 'not available'}"
-                continue
-            raise  # Hard error — bad key, network, etc.
+        # Try the model up to 2 times (one retry) before skipping
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(model=model, contents=prompt)
+                return response.text
+            except Exception as e:
+                err_str = str(e)
+                is_quota = any(kw in err_str for kw in ["429", "RESOURCE_EXHAUSTED", "quota"])
+                is_unavailable = any(kw in err_str for kw in ["NOT_FOUND", "404", "INVALID_ARGUMENT"])
+
+                if is_quota:
+                    last_error = f"{model}: quota exceeded"
+                    if attempt == 0:
+                        # One brief retry on the same model before giving up on it
+                        time.sleep(_RETRY_DELAY_SECONDS)
+                        continue
+                    break  # Move to next model
+                elif is_unavailable:
+                    last_error = f"{model}: not available"
+                    break  # Skip unavailable model immediately
+                else:
+                    raise  # Hard error — bad key, network, etc.
 
     raise RuntimeError(
         f"All models are quota-limited right now ({last_error}). "
-        "Please wait a few minutes and try again."
+        "Please wait a few minutes and try again, or select a different model in Settings."
     )
 
 
@@ -82,7 +102,7 @@ def validate_api_key(api_key: str) -> tuple[bool, str]:
             return True, model
         except Exception as e:
             err_str = str(e)
-            if any(kw in err_str for kw in ["429", "RESOURCE_EXHAUSTED", "quota", "NOT_FOUND", "404"]):
+            if any(kw in err_str for kw in ["429", "RESOURCE_EXHAUSTED", "quota", "NOT_FOUND", "404", "INVALID_ARGUMENT"]):
                 continue          # try next model
             return False, f"Unexpected error on {model}: {err_str[:150]}"
 
