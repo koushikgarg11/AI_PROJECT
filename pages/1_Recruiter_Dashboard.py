@@ -360,11 +360,13 @@ if run_btn:
         st.session_state.criteria = criteria
 
         results = []
+        total_files = len(uploaded_files)
         progress = st.progress(0, text="Analyzing resumes...")
         status_container = st.empty()
 
+        # ── Phase 1: Score every resume ───────────────────────────────────────
         for i, uf in enumerate(uploaded_files):
-            status_container.markdown(f"🔍 Analyzing **{uf.name}**...")
+            status_container.markdown(f"🔍 **[{i+1}/{total_files}]** Scoring **{uf.name}**...")
             try:
                 text = extract_text(uf.getvalue(), uf.name)
                 if len(text.strip()) < 50:
@@ -372,14 +374,42 @@ if run_btn:
                     continue
                 pref_model = st.session_state.get("preferred_model", "gemini-2.5-flash")
                 assessment = shortlist_resume(model, text, criteria, preferred_model=pref_model)
-                # Override shortlist decision by threshold
                 assessment["shortlisted"] = assessment["match_score"] >= shortlist_threshold
                 assessment["_resume_text"] = text
                 assessment["_filename"] = uf.name
                 results.append(assessment)
             except Exception as e:
                 st.error(f"❌ Error processing `{uf.name}`: {e}")
-            progress.progress((i + 1) / len(uploaded_files), text=f"Analyzed {i+1}/{len(uploaded_files)}")
+            progress.progress((i + 1) / (total_files * 2), text=f"Scored {i+1}/{total_files} resumes...")
+
+        # ── Phase 2: Auto-generate personalized questions for shortlisted ─────
+        shortlisted = [r for r in results if r.get("shortlisted")]
+        for j, r in enumerate(shortlisted):
+            filename = r.get("_filename", f"candidate_{j}")
+            status_container.markdown(
+                f"🧠 **[{j+1}/{len(shortlisted)}]** Generating personalized questions for **{r.get('candidate_name', filename)}**..."
+            )
+            try:
+                pref_model = st.session_state.get("preferred_model", "gemini-2.5-flash")
+                questions = generate_interview_questions(
+                    model, r, r.get("_resume_text", ""),
+                    preferred_model=pref_model,
+                )
+                c_id = storage.generate_candidate_id()
+                candidate_data = {
+                    "id": c_id,
+                    "assessment": {k: v for k, v in r.items() if not k.startswith("_")},
+                    "questions": questions,
+                    "filename": filename,
+                }
+                storage.save_candidate(c_id, candidate_data)
+                st.session_state.generated_ids[filename] = c_id
+            except Exception as e:
+                st.warning(f"⚠️ Could not generate questions for `{filename}`: {e}")
+            progress.progress(
+                (total_files + j + 1) / (total_files * 2),
+                text=f"Generated questions {j+1}/{len(shortlisted)}..."
+            )
 
         status_container.empty()
         progress.empty()
@@ -387,7 +417,10 @@ if run_btn:
 
         if results:
             shortlisted_count = sum(1 for r in results if r.get("shortlisted"))
-            st.success(f"✅ Analysis complete! **{shortlisted_count} shortlisted** out of {len(results)} candidates.")
+            st.success(
+                f"✅ Done! **{shortlisted_count} shortlisted** out of {len(results)} candidates. "
+                f"Personalized interview forms auto-generated for all shortlisted candidates."
+            )
         else:
             st.warning("No valid resumes could be processed.")
 
@@ -438,7 +471,21 @@ if results:
         f"❌ Rejected ({total - shortlisted})",
     ])
 
-    def render_candidates(candidates_list, show_form_gen=True, tab_id="all"):
+    # ── Determine app base URL (works locally and on Streamlit Cloud) ─────────
+    try:
+        _app_url = st.secrets.get("APP_URL", "").rstrip("/")
+    except Exception:
+        _app_url = ""
+    if not _app_url:
+        # Auto-detect from Streamlit context headers when available
+        try:
+            _host = st.context.headers.get("host", "localhost:8501")
+            _proto = "https" if ".streamlit.app" in _host else "http"
+            _app_url = f"{_proto}://{_host}"
+        except Exception:
+            _app_url = "http://localhost:8501"
+
+    def render_candidates(candidates_list, tab_prefix="all", show_form_gen=True):
         if not candidates_list:
             st.info("No candidates in this category.")
             return
@@ -448,6 +495,9 @@ if results:
             is_shortlisted = r.get("shortlisted", False)
             card_class = "shortlisted" if is_shortlisted else "rejected"
             filename = r.get("_filename", f"candidate_{idx}")
+            # Unique key per tab + filename + position — prevents duplicate key crash
+            safe_fname = filename.replace(".", "_").replace(" ", "_")
+            uid = f"{tab_prefix}_{safe_fname}_{idx}"
 
             if score >= 70:
                 score_class = "score-high"
@@ -484,7 +534,6 @@ if results:
                     </div>
                     """, unsafe_allow_html=True)
 
-                    # Skills
                     skills_html = " ".join(
                         f'<span class="skill-tag">{s}</span>'
                         for s in r.get("key_skills", [])[:6]
@@ -493,47 +542,51 @@ if results:
                         st.markdown(f'<div>{skills_html}</div>', unsafe_allow_html=True)
 
                 with col_action:
+                    c_id_for_this = st.session_state.get("generated_ids", {}).get(filename)
                     if is_shortlisted and show_form_gen:
-                        gen_key = f"gen_{tab_id}_{filename}_{idx}"
-                        if st.button(f"📝 Generate Form", key=gen_key, use_container_width=True):
-                            with st.spinner("Generating personalized interview form..."):
-                                try:
-                                    pref_model = st.session_state.get("preferred_model", "gemini-2.5-flash")
-                                    questions = generate_interview_questions(
-                                        model, r, r.get("_resume_text", ""),
-                                        preferred_model=pref_model,
-                                        criteria=st.session_state.get("criteria", {}),
-                                    )
-                                    c_id = storage.generate_candidate_id()
-                                    candidate_data = {
-                                        "id": c_id,
-                                        "assessment": r,
-                                        "questions": questions,
-                                        "filename": filename,
-                                    }
-                                    # Remove large text before saving
-                                    candidate_data["assessment"].pop("_resume_text", None)
-                                    storage.save_candidate(c_id, candidate_data)
-                                    st.session_state.generated_ids[filename] = c_id
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error generating form: {e}")
+                        if c_id_for_this:
+                            st.markdown(
+                                '<span style="color:#34d399;font-size:0.82rem;">✅ Form Ready</span>',
+                                unsafe_allow_html=True
+                            )
+                        else:
+                            # Manual re-generate button (fallback if auto-gen failed)
+                            if st.button("🔄 Regenerate Form", key=f"regen_{uid}", use_container_width=True):
+                                with st.spinner("Generating personalized interview form..."):
+                                    try:
+                                        pref_model = st.session_state.get("preferred_model", "gemini-2.5-flash")
+                                        questions = generate_interview_questions(
+                                            model, r, r.get("_resume_text", ""),
+                                            preferred_model=pref_model,
+                                        )
+                                        c_id = storage.generate_candidate_id()
+                                        candidate_data = {
+                                            "id": c_id,
+                                            "assessment": {k: v for k, v in r.items() if not k.startswith("_")},
+                                            "questions": questions,
+                                            "filename": filename,
+                                        }
+                                        storage.save_candidate(c_id, candidate_data)
+                                        st.session_state.generated_ids[filename] = c_id
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error: {e}")
 
                 # Show form link if generated
                 c_id_for_this = st.session_state.get("generated_ids", {}).get(filename)
                 if c_id_for_this:
-                    form_url = f"http://localhost:8501/Candidate_Form?candidate_id={c_id_for_this}"
+                    form_url = f"{_app_url}/Candidate_Form?candidate_id={c_id_for_this}"
                     st.markdown(f"""
                     <div class="form-link-box">
-                        🔗 Form Link for <strong>{r.get('candidate_name','candidate')}</strong>:<br>
+                        🔗 Form Link for <strong>{r.get('candidate_name', 'candidate')}</strong>:<br>
                         {form_url}
                         <br><span style="color:#64748b;font-size:0.75rem;">Candidate ID: {c_id_for_this}</span>
                     </div>
                     """, unsafe_allow_html=True)
                     st.code(form_url, language=None)
 
-                # Expandable details
-                with st.expander("📖 View Full Assessment"):
+                # Expandable details — unique key per tab prevents duplicate expander crash
+                with st.expander("📖 View Full Assessment", expanded=False):
                     d_col1, d_col2 = st.columns(2)
                     with d_col1:
                         st.markdown("**💪 Strengths**")
@@ -553,13 +606,13 @@ if results:
                 st.markdown("</div>", unsafe_allow_html=True)
 
     with tab_all:
-        render_candidates(results, tab_id="all")
+        render_candidates(results, tab_prefix="all")
 
     with tab_shortlisted:
-        render_candidates([r for r in results if r.get("shortlisted")], tab_id="shortlisted")
+        render_candidates([r for r in results if r.get("shortlisted")], tab_prefix="shortlisted")
 
     with tab_rejected:
-        render_candidates([r for r in results if not r.get("shortlisted")], show_form_gen=False, tab_id="rejected")
+        render_candidates([r for r in results if not r.get("shortlisted")], tab_prefix="rejected", show_form_gen=False)
 
     # ── Export ────────────────────────────────────────────────────────────────
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
