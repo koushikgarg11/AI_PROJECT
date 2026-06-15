@@ -502,6 +502,7 @@ if results:
                                     questions = generate_interview_questions(
                                         model, r, r.get("_resume_text", ""),
                                         preferred_model=pref_model,
+                                        criteria=st.session_state.get("criteria", {}),
                                     )
                                     c_id = storage.generate_candidate_id()
                                     candidate_data = {
