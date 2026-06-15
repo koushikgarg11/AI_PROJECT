@@ -370,7 +370,7 @@ if run_btn:
                 if len(text.strip()) < 50:
                     st.warning(f"⚠️ `{uf.name}` appears to have very little text. Skipping.")
                     continue
-                pref_model = st.session_state.get("preferred_model", "gemini-1.5-flash")
+                pref_model = st.session_state.get("preferred_model", "gemini-2.5-flash")
                 assessment = shortlist_resume(model, text, criteria, preferred_model=pref_model)
                 # Override shortlist decision by threshold
                 assessment["shortlisted"] = assessment["match_score"] >= shortlist_threshold
@@ -498,7 +498,7 @@ if results:
                         if st.button(f"📝 Generate Form", key=gen_key, use_container_width=True):
                             with st.spinner("Generating personalized interview form..."):
                                 try:
-                                    pref_model = st.session_state.get("preferred_model", "gemini-1.5-flash")
+                                    pref_model = st.session_state.get("preferred_model", "gemini-2.5-flash")
                                     questions = generate_interview_questions(
                                         model, r, r.get("_resume_text", ""),
                                         preferred_model=pref_model,
