@@ -438,7 +438,7 @@ if results:
         f"❌ Rejected ({total - shortlisted})",
     ])
 
-    def render_candidates(candidates_list, show_form_gen=True):
+    def render_candidates(candidates_list, show_form_gen=True, tab_id="all"):
         if not candidates_list:
             st.info("No candidates in this category.")
             return
@@ -494,7 +494,7 @@ if results:
 
                 with col_action:
                     if is_shortlisted and show_form_gen:
-                        gen_key = f"gen_{filename}_{idx}"
+                        gen_key = f"gen_{tab_id}_{filename}_{idx}"
                         if st.button(f"📝 Generate Form", key=gen_key, use_container_width=True):
                             with st.spinner("Generating personalized interview form..."):
                                 try:
@@ -553,13 +553,13 @@ if results:
                 st.markdown("</div>", unsafe_allow_html=True)
 
     with tab_all:
-        render_candidates(results)
+        render_candidates(results, tab_id="all")
 
     with tab_shortlisted:
-        render_candidates([r for r in results if r.get("shortlisted")])
+        render_candidates([r for r in results if r.get("shortlisted")], tab_id="shortlisted")
 
     with tab_rejected:
-        render_candidates([r for r in results if not r.get("shortlisted")], show_form_gen=False)
+        render_candidates([r for r in results if not r.get("shortlisted")], show_form_gen=False, tab_id="rejected")
 
     # ── Export ────────────────────────────────────────────────────────────────
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
