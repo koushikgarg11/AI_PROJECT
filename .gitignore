@@ -18,8 +18,6 @@ env/
 .env.local
 *.env
 
-# Streamlit
-.streamlit/secrets.toml
 
 # Data & Uploads (don't commit candidate data or API keys)
 data/config.json
