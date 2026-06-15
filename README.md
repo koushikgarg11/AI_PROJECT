@@ -107,8 +107,4 @@ The API key is stored only in your browser session — it is **never written to 
 | Data Storage | JSON files (local) |
 | Styling | Custom CSS injected via Streamlit |
 
----
 
-## 📄 License
-
-MIT License — free to use and modify.
