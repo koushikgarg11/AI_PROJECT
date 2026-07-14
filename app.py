@@ -128,14 +128,14 @@ st.markdown("""
         border: none;
     }
 
-    /* Dark sidebar */
+    /* White sidebar */
     [data-testid="stSidebar"] {
-        background: #0f172a;
-        border-right: 1px solid #1e293b;
+        background: #ffffff;
+        border-right: 1px solid #e2e8f0;
     }
 
-    [data-testid="stSidebar"] .stMarkdown {
-        color: #94a3b8;
+    [data-testid="stSidebar"] * {
+        color: #1e293b !important;
     }
 </style>
 """, unsafe_allow_html=True)
