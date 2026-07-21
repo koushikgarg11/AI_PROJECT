@@ -1,5 +1,10 @@
 """
 Backend AI logic: resume screening + question generation using Gemini API.
+
+The Gemini API key is no longer read from an environment variable / Streamlit
+secret. Every function here that needs to call Gemini takes an `api_key`
+argument instead, so each visitor's own key (held in st.session_state on the
+frontend) is used for their own requests.
 """
 
 import os
@@ -8,13 +13,11 @@ import re
 import uuid
 from google import genai
 
-# Initialize Gemini client
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 GEMINI_MODEL = "gemini-2.0-flash"
 
 
 # ---------------------------------------------------------------------------
-# Text extraction helpers
+# Text extraction helpers (no API key needed)
 # ---------------------------------------------------------------------------
 
 def extract_text_from_file(filepath: str) -> str:
@@ -50,8 +53,19 @@ def _extract_docx(filepath: str) -> str:
         return f"[DOCX extraction error: {e}]"
 
 
-def _call_gemini(prompt: str, max_tokens: int = 1500) -> str:
-    """Call Gemini and return the text response."""
+# ---------------------------------------------------------------------------
+# Gemini call helpers
+# ---------------------------------------------------------------------------
+
+def _get_client(api_key: str) -> genai.Client:
+    if not api_key:
+        raise ValueError("No Gemini API key provided. Each user must supply their own key.")
+    return genai.Client(api_key=api_key)
+
+
+def _call_gemini(prompt: str, api_key: str, max_tokens: int = 1500) -> str:
+    """Call Gemini with the given user's API key and return the text response."""
+    client = _get_client(api_key)
     response = client.models.generate_content(
         model=GEMINI_MODEL,
         contents=prompt,
@@ -70,15 +84,16 @@ def _parse_json(raw: str):
 # Resume screening
 # ---------------------------------------------------------------------------
 
-def screen_resumes(file_paths: list, criteria: dict) -> list:
+def screen_resumes(file_paths: list, criteria: dict, api_key: str) -> list:
     """
-    Screen a list of resume files against job criteria.
+    Screen a list of resume files against job criteria using the caller's
+    own Gemini API key.
     Returns a list of candidate dicts with scores and shortlist decisions.
     """
     results = []
     for path in file_paths:
         resume_text = extract_text_from_file(path)
-        result = _evaluate_single_resume(resume_text, os.path.basename(path), criteria)
+        result = _evaluate_single_resume(resume_text, os.path.basename(path), criteria, api_key)
         result["filename"] = os.path.basename(path)
         result["candidate_id"] = str(uuid.uuid4())[:8]
         result["job_title"] = criteria.get("job_title", "")
@@ -89,7 +104,7 @@ def screen_resumes(file_paths: list, criteria: dict) -> list:
     return results
 
 
-def _evaluate_single_resume(resume_text: str, filename: str, criteria: dict) -> dict:
+def _evaluate_single_resume(resume_text: str, filename: str, criteria: dict, api_key: str) -> dict:
     """Use Gemini to evaluate one resume and return structured data."""
 
     threshold = criteria.get("shortlist_threshold", 65)
@@ -138,7 +153,7 @@ Return ONLY valid JSON with these exact keys:
 Return only the JSON, no other text."""
 
     try:
-        raw = _call_gemini(prompt)
+        raw = _call_gemini(prompt, api_key)
         return _parse_json(raw)
     except Exception as e:
         return {
@@ -154,7 +169,7 @@ Return only the JSON, no other text."""
 # Question generation
 # ---------------------------------------------------------------------------
 
-def generate_candidate_questions(candidate: dict) -> list:
+def generate_candidate_questions(candidate: dict, api_key: str) -> list:
     """
     Generate assessment questions for a shortlisted candidate.
     - First 3: Fixed ACC company-fit questions (vision, mission, startup culture)
@@ -226,7 +241,7 @@ Return ONLY a valid JSON array, no markdown, no preamble:
 ]"""
 
     try:
-        raw = _call_gemini(prompt, max_tokens=800)
+        raw = _call_gemini(prompt, api_key, max_tokens=800)
         personalized = _parse_json(raw)
         if not isinstance(personalized, list):
             raise ValueError("Response is not a list")
