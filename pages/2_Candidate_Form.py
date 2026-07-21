@@ -5,7 +5,7 @@ import time
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.ai_screener import generate_candidate_questions
-from utils.storage import load_shortlisted_candidates, save_submission, submission_exists
+from utils.storage import load_shortlisted_candidates, save_submission, submission_exists, load_job_criteria
 
 st.set_page_config(page_title="Candidate Assessment — TalentScreen AI", page_icon="📝", layout="wide")
 
@@ -139,12 +139,17 @@ st.markdown(f"### Welcome, {candidate.get('name', 'Candidate')}! 👋")
 st.markdown(f"*Role: **{candidate.get('job_title', 'Position')}** at {candidate.get('company', '')}*")
 st.markdown("---")
 
+# The Gemini key used here is whichever one HR saved with this job posting —
+# candidates never need to supply or see a key themselves.
+job_criteria = load_job_criteria()
+gemini_api_key = job_criteria.get("gemini_api_key", "")
+
 # Generate questions (cache per candidate per version — bump version to force regeneration)
 QUESTIONS_VERSION = "v3"
 cache_key = f"questions_{candidate_id}_{QUESTIONS_VERSION}"
 if cache_key not in st.session_state:
     with st.spinner("🤖 AI is generating personalized questions based on your resume..."):
-        questions = generate_candidate_questions(candidate)
+        questions = generate_candidate_questions(candidate, gemini_api_key)
         st.session_state[cache_key] = questions
 else:
     questions = st.session_state[cache_key]
