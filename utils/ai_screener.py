@@ -1,10 +1,10 @@
 """
 Backend AI logic: resume screening + question generation using Gemini API.
 
-The Gemini API key is no longer read from an environment variable / Streamlit
-secret. Every function here that needs to call Gemini takes an `api_key`
-argument instead, so each visitor's own key (held in st.session_state on the
-frontend) is used for their own requests.
+NOTE: This module no longer reads a shared GEMINI_API_KEY from the environment
+or Streamlit secrets. Every function that talks to Gemini takes an `api_key`
+argument, and a fresh client is built for that single call. This lets each
+user (or each HR job posting) supply their own key from the UI.
 """
 
 import os
@@ -16,8 +16,43 @@ from google import genai
 GEMINI_MODEL = "gemini-2.0-flash"
 
 
+class MissingAPIKeyError(Exception):
+    """Raised when a Gemini call is attempted without a valid API key."""
+    pass
+
+
 # ---------------------------------------------------------------------------
-# Text extraction helpers (no API key needed)
+# Client helpers
+# ---------------------------------------------------------------------------
+
+def _get_client(api_key: str):
+    if not api_key or not api_key.strip():
+        raise MissingAPIKeyError(
+            "No Gemini API key was provided. Enter your own key in the "
+            "Job Criteria section (HR Portal) before screening resumes."
+        )
+    return genai.Client(api_key=api_key.strip())
+
+
+def _call_gemini(prompt: str, api_key: str, max_tokens: int = 1500) -> str:
+    """Call Gemini with the caller-supplied key and return the text response."""
+    client = _get_client(api_key)
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+    )
+    return response.text.strip()
+
+
+def _parse_json(raw: str):
+    """Strip markdown fences and parse JSON."""
+    raw = re.sub(r"^```[a-z]*\n?", "", raw.strip())
+    raw = re.sub(r"\n?```$", "", raw).strip()
+    return json.loads(raw)
+
+
+# ---------------------------------------------------------------------------
+# Text extraction helpers
 # ---------------------------------------------------------------------------
 
 def extract_text_from_file(filepath: str) -> str:
@@ -54,42 +89,20 @@ def _extract_docx(filepath: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Gemini call helpers
-# ---------------------------------------------------------------------------
-
-def _get_client(api_key: str) -> genai.Client:
-    if not api_key:
-        raise ValueError("No Gemini API key provided. Each user must supply their own key.")
-    return genai.Client(api_key=api_key)
-
-
-def _call_gemini(prompt: str, api_key: str, max_tokens: int = 1500) -> str:
-    """Call Gemini with the given user's API key and return the text response."""
-    client = _get_client(api_key)
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-    )
-    return response.text.strip()
-
-
-def _parse_json(raw: str):
-    """Strip markdown fences and parse JSON."""
-    raw = re.sub(r"^```[a-z]*\n?", "", raw.strip())
-    raw = re.sub(r"\n?```$", "", raw).strip()
-    return json.loads(raw)
-
-
-# ---------------------------------------------------------------------------
 # Resume screening
 # ---------------------------------------------------------------------------
 
 def screen_resumes(file_paths: list, criteria: dict, api_key: str) -> list:
     """
-    Screen a list of resume files against job criteria using the caller's
-    own Gemini API key.
+    Screen a list of resume files against job criteria.
     Returns a list of candidate dicts with scores and shortlist decisions.
+
+    `api_key` must be a valid Gemini API key supplied by the HR user;
+    it is used for every resume in this batch.
     """
+    # Fail fast with one clear error instead of failing silently per-resume.
+    _get_client(api_key)
+
     results = []
     for path in file_paths:
         resume_text = extract_text_from_file(path)
@@ -155,6 +168,8 @@ Return only the JSON, no other text."""
     try:
         raw = _call_gemini(prompt, api_key)
         return _parse_json(raw)
+    except MissingAPIKeyError:
+        raise
     except Exception as e:
         return {
             "name": "Unknown", "email": "N/A", "phone": "N/A",
@@ -175,6 +190,10 @@ def generate_candidate_questions(candidate: dict, api_key: str) -> list:
     - First 3: Fixed ACC company-fit questions (vision, mission, startup culture)
     - Next 5: Personalized to the candidate's resume (skills + projects), kept concise
     Returns a list of question dicts with type: 'company', 'skill', 'project', or 'video'.
+
+    `api_key` is the Gemini API key saved by HR when the job criteria was created.
+    If it's missing, the fixed company questions are still returned and the
+    personalized questions fall back to a template so the candidate isn't blocked.
     """
 
     # ── Fixed ACC company-fit questions (always first, never change) ──────────
@@ -245,7 +264,8 @@ Return ONLY a valid JSON array, no markdown, no preamble:
         personalized = _parse_json(raw)
         if not isinstance(personalized, list):
             raise ValueError("Response is not a list")
-    except Exception as e:
+    except Exception:
+        # Covers MissingAPIKeyError too — candidate still gets a usable form.
         top_skill = skills[0] if skills else "your primary skill"
         top_project = projects[0][:60] if projects else "your most significant project"
         personalized = [
