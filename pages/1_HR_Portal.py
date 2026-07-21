@@ -151,7 +151,7 @@ with tab1:
             index=["Any", "High School", "Diploma", "Bachelor's", "Master's", "PhD"].index(existing.get("education", "Bachelor's"))
         )
     with col6:
-        shortlist_threshold = st.slider("Shortlist Score Threshold (%)", 40, 90, existing.get("shortlist_threshold", 65),
+        shortlist_threshold = st.slider("Shortlist Score Threshold (%)", 40, 100, existing.get("shortlist_threshold", 80),
                                          help="Candidates scoring above this are shortlisted")
 
     additional_criteria = st.text_area(
