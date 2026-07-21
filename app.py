@@ -152,7 +152,7 @@ st.markdown("""
 # Feature cards
 col1, col2, col3, col4 = st.columns(4)
 features = [
-    ("🤖", "AI Shortlisting", "Claude AI reads resumes and scores candidates against your criteria"),
+    ("🤖", "AI Shortlisting", "Gemini AI reads resumes and scores candidates against your criteria"),
     ("📋", "Smart Questions", "Generates tailored questions based on each candidate's skills & projects"),
     ("🎥", "Video Responses", "2 communication skill questions answered via video upload"),
     ("📊", "HR Dashboard", "Review all submissions with scores and assessments in one place"),
