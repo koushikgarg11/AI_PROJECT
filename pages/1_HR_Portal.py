@@ -3,8 +3,10 @@ import os
 import json
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.ai_screener import screen_resumes, extract_text_from_file
+from utils.ai_screener import screen_resumes, extract_text_from_file, MissingAPIKeyError
 from utils.storage import save_job_criteria, load_job_criteria, save_shortlisted_candidates
+# NOTE: gemini_api_key now lives inside the criteria dict (saved via save_job_criteria)
+# instead of being read from st.secrets / os.environ, so each HR user brings their own key.
 
 st.set_page_config(page_title="HR Portal — TalentScreen AI", page_icon="🏢", layout="wide")
 
@@ -27,6 +29,14 @@ st.markdown("""
         border: 1px solid #1e293b;
         border-radius: 12px;
         padding: 1.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .api-key-box {
+        background: #1a1207;
+        border: 1px solid #78350f;
+        border-radius: 12px;
+        padding: 1.2rem 1.5rem;
         margin-bottom: 1rem;
     }
 
@@ -83,6 +93,27 @@ existing = load_job_criteria()
 tab1, tab2 = st.tabs(["⚙️ Job Criteria & Upload", "📋 Screening Results"])
 
 with tab1:
+    st.markdown("""
+    <div class="api-key-box">
+        <strong style="color:#fbbf24">🔑 Your Gemini API Key</strong><br>
+        <span style="color:#fcd34d; font-size:0.85rem">
+            TalentScreen AI doesn't ship with a shared API key — every HR user
+            supplies their own so nothing is billed to us. Get a free key at
+            <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#fde68a">
+                aistudio.google.com/apikey
+            </a>. It's saved locally with this job posting and never leaves this app.
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    gemini_api_key = st.text_input(
+        "Gemini API Key",
+        value=existing.get("gemini_api_key", ""),
+        type="password",
+        placeholder="AIza...",
+        help="Required to screen resumes and generate candidate questions."
+    )
+
     st.markdown("#### Job Details")
     col1, col2 = st.columns(2)
     with col1:
@@ -132,6 +163,7 @@ with tab1:
 
     if st.button("💾 Save Job Criteria"):
         criteria = {
+            "gemini_api_key": gemini_api_key,
             "job_title": job_title,
             "company": company,
             "department": department,
@@ -163,23 +195,30 @@ with tab1:
             criteria = load_job_criteria()
             if not criteria.get("job_title"):
                 st.error("Please save your job criteria first!")
+            elif not criteria.get("gemini_api_key", "").strip():
+                st.error("Please enter and save your Gemini API key above before screening.")
             else:
-                with st.spinner("🔍 AI is reading and scoring all resumes..."):
-                    # Save uploaded files temporarily
-                    temp_files = []
-                    upload_dir = "uploads"
-                    os.makedirs(upload_dir, exist_ok=True)
-                    for f in uploaded_files:
-                        path = os.path.join(upload_dir, f.name)
-                        with open(path, "wb") as out:
-                            out.write(f.read())
-                        temp_files.append(path)
+                try:
+                    with st.spinner("🔍 AI is reading and scoring all resumes..."):
+                        # Save uploaded files temporarily
+                        temp_files = []
+                        upload_dir = "uploads"
+                        os.makedirs(upload_dir, exist_ok=True)
+                        for f in uploaded_files:
+                            path = os.path.join(upload_dir, f.name)
+                            with open(path, "wb") as out:
+                                out.write(f.read())
+                            temp_files.append(path)
 
-                    results = screen_resumes(temp_files, criteria)
-                    save_shortlisted_candidates(results)
-                    st.session_state["screening_results"] = results
-                    st.success(f"✅ Screening complete! {sum(1 for r in results if r.get('shortlisted'))} candidates shortlisted.")
-                    st.rerun()
+                        results = screen_resumes(temp_files, criteria, criteria["gemini_api_key"])
+                        save_shortlisted_candidates(results)
+                        st.session_state["screening_results"] = results
+                        st.success(f"✅ Screening complete! {sum(1 for r in results if r.get('shortlisted'))} candidates shortlisted.")
+                        st.rerun()
+                except MissingAPIKeyError as e:
+                    st.error(f"🔑 {e}")
+                except Exception as e:
+                    st.error(f"Something went wrong while calling Gemini: {e}")
 
 with tab2:
     results = st.session_state.get("screening_results", [])
